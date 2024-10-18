@@ -16,33 +16,62 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 
 // Replace with your Stripe publishable key
-const stripePromise = loadStripe('pk_test_your_publishable_key_here')
+const stripePromise = loadStripe('pk_test_51Q9eId09lH5Cy2LMShB4mO9TsdE8aIm8DHHrkYUJl5bgccGi2ElBcDnmlEnYWXJW4hf5NV7CfUzAuXD5OI8XlPZH004DwPOshL')
 
-const PaymentForm = ({ totalMonthly, totalOneTime }) => {
+const PaymentForm = ({ formData, totalMonthly, totalOneTime }) => {
   const stripe = useStripe()
   const elements = useElements()
   const [error, setError] = useState(null)
   const [processing, setProcessing] = useState(false)
 
   const handleSubmit = async (event) => {
-    event.preventDefault()
-    setProcessing(true)
+    event.preventDefault();
+    setProcessing(true);
+    setError(null);
 
     if (!stripe || !elements) {
-      return
+      return;
     }
 
-    const { error, paymentMethod } = await stripe.createPaymentMethod({
-      type: 'card',
-      card: elements.getElement(CardElement),
-    })
+    try {
+      // Create a PaymentMethod
+      const { error: paymentMethodError, paymentMethod } = await stripe.createPaymentMethod({
+        type: 'card',
+        card: elements.getElement(CardElement),
+      })
 
-    if (error) {
-      setError(error.message)
-      setProcessing(false)
-    } else {
-      console.log('Payment successful:', paymentMethod)
-      setProcessing(false)
+      if (paymentMethodError) {
+        throw new Error(paymentMethodError.message);
+      }
+
+      // Send the PaymentMethod ID and subscription details to your server
+      const response = await fetch('/api/create-subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          paymentMethodId: paymentMethod.id,
+          formData,
+          totalMonthly,
+          totalOneTime,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'An error occurred while processing your payment.');
+      }
+
+      console.log('Subscription created:', result.subscription);
+      // Handle successful subscription (e.g., show success message, redirect)
+
+    } catch (err) {
+      console.error('Payment error:', err);
+      setError(err.message || 'An unexpected error occurred.');
+    } finally {
+      setProcessing(false);
     }
   }
 
@@ -160,11 +189,20 @@ export function GetStartedPopup({ isOpen, onClose }: { isOpen: boolean; onClose:
     }))
   }
 
+  const validateEmail = (email: string) => {
+    const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    return re.test(String(email).toLowerCase());
+  };
+
   const validateStep1 = () => {
     const newErrors = {}
     if (!formData.firstName) newErrors['firstName'] = 'First Name is required'
     if (!formData.lastName) newErrors['lastName'] = 'Last Name is required'
-    if (!formData.email) newErrors['email'] = 'Email is required'
+    if (!formData.email) {
+      newErrors['email'] = 'Email is required'
+    } else if (!validateEmail(formData.email)) {
+      newErrors['email'] = 'Invalid email address'
+    }
     if (!formData.phone) newErrors['phone'] = 'Phone is required'
     if (!formData.companyName) newErrors['companyName'] = 'Company Name is required'
     setErrors(newErrors)
@@ -842,7 +880,7 @@ export function GetStartedPopup({ isOpen, onClose }: { isOpen: boolean; onClose:
               </CardHeader>
               <CardContent>
                 <Elements stripe={stripePromise}>
-                  <PaymentForm totalMonthly={totalMonthly} totalOneTime={totalOneTime} />
+                  <PaymentForm formData={formData} totalMonthly={totalMonthly} totalOneTime={totalOneTime} />
                 </Elements>
               </CardContent>
             </Card>
